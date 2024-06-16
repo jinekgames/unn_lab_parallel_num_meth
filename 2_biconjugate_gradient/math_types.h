@@ -243,7 +243,7 @@ public:
     void FillDiagonal(size_t width = 1) {
         for (size_t i = 0; i < Size; ++i) {
             for (size_t j = 0; j < Size; ++j) {
-                if (Math::llabs(static_cast<int64_t>(j) - static_cast<int64_t>(i)) <= width / 2) {
+                if (Math::llabs(static_cast<int64_t>(j) - static_cast<int64_t>(i)) <= static_cast<int64_t>(width) / 2) {
                     m_Data[i][j] = 1;
                 } else {
                     m_Data[i][j] = 0;
