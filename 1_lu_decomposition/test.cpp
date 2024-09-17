@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
-#include <optional>
 #include <string>
 #include <sstream>
 #include <tuple>
@@ -10,8 +9,7 @@
 
 
 extern "C" {
-void DecomposeF64(double** matrix, size_t size);
-void MP_DecomposeF64(double** matrix, size_t size);
+void EXPORT_LU_Decomposition(double** A, double** L, double** U, int n);
 }
 
 #ifndef MATRIX_OUTPUT_CELL_WIDTH
@@ -19,7 +17,7 @@ void MP_DecomposeF64(double** matrix, size_t size);
 #endif
 
 #define USE_MP        0
-#define PRINT_CONTENT 0
+#define PRINT_CONTENT 1
 #define MATRIX_SIZE   5000
 
 
@@ -27,7 +25,7 @@ template<class T, size_t Size>
 class Matrix {
 public:
 
-    Matrix(std::optional<std::string> name = {})
+    Matrix(std::string name = {})
         : m_Name{name} {
         Allocate();
     }
@@ -88,21 +86,21 @@ public:
     }
 
     std::string GetName() const {
-        return m_Name.value_or("");
+        return m_Name;
     }
 
     void SetName(const std::string& name) {
-        m_Name.emplace(name);
+        m_Name = name;
     }
 
     void UnsetName() {
-        m_Name.reset();
+        m_Name.clear();
     }
 
     std::string ToStr() const {
         std::stringstream out;
-        if (m_Name) {
-            out << m_Name.value() << " ";
+        if (!m_Name.empty()) {
+            out << m_Name << " ";
         }
         out << "[" << Size << " x " << Size << "]:" << std::endl;
         for (size_t i = 0; i < Size; ++i) {
@@ -149,7 +147,7 @@ public:
                 }
             }
         }
-        if (m_Name && right.m_Name) {
+        if (!m_Name.empty() && !right.m_Name.empty()) {
             ret.SetName(GetName() + " * " + right.GetName());
         }
         return ret;
@@ -181,7 +179,7 @@ private:
 private:
 
     T** m_Data = nullptr;
-    std::optional<std::string> m_Name;
+    std::string m_Name;
 };
 
 
@@ -253,34 +251,33 @@ private:
 
 int main() {
 
-    constexpr size_t size = MATRIX_SIZE;
+    constexpr size_t size = 4;
     Matrix<double, size> matrix{"Sample"};
+    Matrix<double, size> L{"L"}, U{"U"};
+    L.FillZeros();
+    U.FillZeros();
 
-    // matrix = std::vector<std::vector<double>>{
-    //     { 1, 1, 1, 0, 0 },
-    //     { 0, 2, 0, 0, 0 },
-    //     { 1, 0, 2, 0, 1 },
-    //     { 0, 0, 0, 4, 0 },
-    //     { 0, 1, 0, 1, 4 }
-    // };
-    matrix.FillNumbers();
+    matrix = std::vector<std::vector<double>>{
+        { 1, 1, 1, 1, },
+        { 0, 2, 0, 2, },
+        { 1, 0, 2, 0, },
+        { 2, 1, 0, 4, },
+    };
+    // matrix.FillNumbers();
 #if PRINT_CONTENT
     std::cout << matrix << std::endl;
 #endif
 
     Timer timer{"Execution"};
-#if USE_MP
-    MP_DecomposeF64(matrix, matrix.GetSize());
-#else
-    DecomposeF64(matrix, matrix.GetSize());
-#endif
+    EXPORT_LU_Decomposition(matrix, L, U, size);
+// #if USE_MP
+//     MP_DecomposeF64(matrix, matrix.GetSize());
+// #else
+//     DecomposeF64(matrix, matrix.GetSize());
+// #endif
     timer.Finish();
 
 #if PRINT_CONTENT
-    matrix.SetName("Decomposition result");
-    std::cout << std::endl << matrix << std::endl;
-
-    auto [L, U] = ExtractDecoposition(matrix);
     std::cout << L << U << std::endl;
     std::cout << L * U << std::endl;
 #endif

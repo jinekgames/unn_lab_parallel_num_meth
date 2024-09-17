@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 14)
 
 project(PARALLEL_NUM_METH
         VERSION 0.1
@@ -7,8 +7,11 @@ project(PARALLEL_NUM_METH
         LANGUAGES CXX)
 
 
-set(BUILD_LAB_1 OFF)
-set(BUILD_LAB_2 ON)
+option(BUILD_LAB_1 ON)
+option(BUILD_LAB_2 OFF)
+
+message("Build 1 Lab: ${BUILD_LAB_1}")
+message("Build 2 Lab: ${BUILD_LAB_2}")
 
 
 if(${BUILD_LAB_1})
