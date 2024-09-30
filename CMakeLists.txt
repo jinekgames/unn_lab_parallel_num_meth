@@ -7,8 +7,8 @@ project(PARALLEL_NUM_METH
         LANGUAGES CXX)
 
 
-option(BUILD_LAB_1 ON)
-option(BUILD_LAB_2 OFF)
+option(BUILD_LAB_1 OFF)
+option(BUILD_LAB_2 ON)
 
 message("Build 1 Lab: ${BUILD_LAB_1}")
 message("Build 2 Lab: ${BUILD_LAB_2}")

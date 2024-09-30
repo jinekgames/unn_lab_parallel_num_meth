@@ -1,53 +1,25 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <thread>
-#include <type_traits>
 #include <vector>
 
-
-namespace Math {
-using namespace std;
-#include <cmath>
-} // namespace Math
-
-
-// namespace {
+namespace {
 
 template<class T>
-concept Number = std::is_same_v<T, float> || std::is_same_v<T, double>;
-
-template<Number T>
-void FillFunc(T* vector, const size_t size, std::function<void(T&)> allocator) {
-    std::for_each(vector, vector + size, allocator);
-}
-
-template<Number T>
 void Fill(T* vector, const size_t size, const T value) {
-    FillFunc<T>(vector, size, [=](T& el) { el = value; });
+    std::for_each(vector, vector + size, [&](T& el) { el = value; });
 }
 
-template<Number T>
-T* AllocateVector(const size_t size, std::optional<T> initValue = {}) {
+template<class T>
+T* AllocateVector(const size_t size, bool init = false, T initValue = {}) {
     auto ret = new T[size];
-    if (initValue) {
-        Fill(ret, size, initValue.value());
+    if (init) {
+        Fill(ret, size, initValue);
     }
     return ret;
 }
 
-template<Number T>
-T** AllocateMatrix(const size_t size) {
-    T** ret = nullptr;
-    ret = new T*[size];
-    for (size_t i = 0; i < size; ++i) {
-        ret[i] = AllocateVector<T>(size);
-    }
-    return ret;
-}
-
-template<Number T>
+template<class T>
 void Destroy(T* vector) {
     if (!vector) {
         return;
@@ -56,51 +28,7 @@ void Destroy(T* vector) {
     vector = nullptr;
 }
 
-template<Number T>
-void Destroy(T** matrix, size_t size) {
-    if (!matrix) {
-        return;
-    }
-    for (size_t i = 0; i < size; ++i) {
-        delete[] matrix[i];
-    }
-    delete[] matrix;
-    matrix = nullptr;
-}
-
-template<Number T>
-void Copy(T** dst, T** src, const size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        for (size_t j = 0; j < size; ++j) {
-            dst[i][j] = src[i][j];
-        }
-    }
-}
-
-template<Number T>
-T** Copy(T** src, const size_t size) {
-    auto ret = AllocateMatrix<T>(size);
-    Copy(ret, src);
-    return ret;
-}
-
-template<Number T>
-void Transpose(T** src, T** dst, const size_t size) {
-    for (size_t i = 0; i < size; i++) {
-        for (size_t j = 0; j < size; j++) {
-            dst[i][j] = src[j][i];
-        }
-    }
-}
-
-template<Number T>
-T** Transpose(T** matrix, const size_t size) {
-    auto ret = AllocateMatrix<T>(size);
-    Transpose<T>(matrix, ret, size);
-    return ret;
-}
-
-template<Number T>
+template<class T>
 T Mult(T* left, T* right, const size_t size) {
     T ret = 0;
     for (int i = 0; i < size; i++) {
@@ -109,52 +37,82 @@ T Mult(T* left, T* right, const size_t size) {
     return ret;
 }
 
-template<Number T>
-void Mult(T** matrix, T* vector, T* res, const size_t size) {
-    for (int i = 0; i < size; i++) {
-        res[i] = Mult<T>(matrix[i], vector, size);
+} // anonimous namespace
+
+#ifdef JNK_TEST_BUILD
+struct CRSMatrix
+{
+    int n  = 0;                   // rows count
+    int m  = 0;                   // columns count
+    int nz = 0;                   // non-zero elements count
+    std::vector<double> val;      // matrix values by rows
+    std::vector<int>    colIndex; // columns indeces
+    std::vector<int>    rowPtr;   // lines start indices
+};
+#endif
+
+void Multiplicate(CRSMatrix A, double *x, double* b)
+{
+    for (int i = 0; i < A.n; i++) {
+        b[i] = 0.0;
+        for (int j = A.rowPtr[i]; j < A.rowPtr[i + 1]; j++) {
+            b[i] += A.val[j] * x[A.colIndex[j]];
+        }
     }
 }
 
-template<Number T>
-T* Mult(T** matrix, T* vector, const size_t size) {
-    auto ret = AllocateVector<T>(size, static_cast<T>(0));
-    Mult<T>(matrix, vector, ret, size);
-    return ret;
+double* Multiplicate(CRSMatrix A, double *x)
+{
+    double* b = AllocateVector<double>(A.n);
+    Multiplicate(A, x, b);
+    return b;
 }
 
-inline uint32_t GetLogicalThreadsCount() {
-    return std::thread::hardware_concurrency();
-}
+CRSMatrix sparse_transpose(const CRSMatrix& input) {
+    CRSMatrix res;
+    res.n = input.n;
+    res.m = input.m;
+    res.nz = input.nz;
+    res.val = std::vector<double>(input.nz, 0.0);
+    res.colIndex = std::vector<int>(input.nz, 0);
+    res.rowPtr = std::vector<int>(input.m + 2, 0); // one extra
 
-void SmartMPCycle(size_t start, size_t end, const std::function<void(size_t)>& op, size_t TargetItPerThrd = 200) {
-    std::vector<std::thread> procs;
-    static const size_t threadsCountSystem   = GetLogicalThreadsCount();
-    const size_t        numIterations  = end - start;
-    static const size_t threadsCount   = threadsCountSystem * Math::fminl(1, static_cast<double>(numIterations) / TargetItPerThrd);
-    const size_t        itersPerThread = numIterations / threadsCount + 1;
-    for (size_t tid = 0; tid < threadsCount; ++tid) {
-        size_t newStart = start + itersPerThread * tid;
-        size_t newEnd   = Math::min(newStart + itersPerThread, end);
-        procs.push_back(std::thread{[newStart, newEnd, &op]() {
-            for (size_t i = newStart; i < newEnd; ++i) {
-                op(i);
-            }
-        }});
+    // count per column
+    for (int i = 0; i < input.nz; ++i) {
+        ++res.rowPtr[input.colIndex[i] + 2];
     }
-    for (auto& proc: procs) {
-        proc.join();
+
+    // from count per column generate new rowPtr (but shifted)
+    for (int i = 2; i < res.rowPtr.size(); ++i) {
+        // create incremental sum
+        res.rowPtr[i] += res.rowPtr[i - 1];
     }
+
+    // perform the main part
+    for (int i = 0; i < input.n; ++i) {
+        for (int j = input.rowPtr[i]; j < input.rowPtr[i + 1]; ++j) {
+            // calculate index to transposed matrix at which we should place current element, and at the same time build final rowPtr
+            const int new_index = res.rowPtr[input.colIndex[j] + 1]++;
+            res.val[new_index] = input.val[j];
+            res.colIndex[new_index] = i;
+        }
+    }
+    res.rowPtr.pop_back(); // pop that one extra
+
+    return res;
 }
 
-template<Number T, bool MP = false>
-int SolveBCG(T** A, T* b, T* x, const size_t size, const size_t iterations,
-             const T accuracy) {
+void SLE_Solver_CRS_BICG(CRSMatrix& A, double* b, double eps, int max_iter,
+                         double* x, int& count) {
+
+    using T = double;
+
+    auto size = A.n;
 
     // Get transposed A
-    auto At = Transpose<T>(A, size);
+    auto At = sparse_transpose(A);
 
-    T norm = Math::sqrt(Mult(b, b, size));
+    T norm = std::sqrt(Mult(b, b, size));
 
     // first approach
     Fill<T>(x, size, 1);
@@ -169,63 +127,49 @@ int SolveBCG(T** A, T* b, T* x, const size_t size, const size_t iterations,
     auto biP    = AllocateVector<T>(size);
     auto nbiP   = AllocateVector<T>(size);
     auto mAtbiP = AllocateVector<T>(size);
-    auto mAP    = Mult<T>(A, x, size);
-    if constexpr (MP) {
-        SmartMPCycle(0, size, [&](size_t i) {
-            R[i] = biR[i] = P[i] = biP[i] = b[i] - mAP[i];
-        });
-    } else {
-        for (size_t i = 0; i < size; ++i) {
-            R[i] = biR[i] = P[i] = biP[i] = b[i] - mAP[i];
-        }
+    auto mAP    = Multiplicate(A, x);
+
+    // init vectors
+// #pragma omp parallel for
+    for (size_t i = 0; i < size; ++i) {
+        R[i] = biR[i] = P[i] = biP[i] = b[i] - mAP[i];
     }
 
     // method realization
     bool solved = false;
     size_t iter;
-    for (iter = 0; iter < iterations; ++iter) {
-        Mult<T>(A,  P,   mAP,    size);
-        Mult<T>(At, biP, mAtbiP, size);
+    for (iter = 0; iter < max_iter; ++iter) {
+        Multiplicate(A, P, mAP);
+        Multiplicate(At, biP, mAtbiP);
 
         T numerator   = Mult<T>(biR, R,   size);
         T denominator = Mult<T>(biP, mAP, size);
         T alfa = numerator / denominator;
 
-        if constexpr (MP) {
-            SmartMPCycle(0, size, [&](size_t i) {
-                nR[i] = R[i] - alfa * mAP[i];
-                nbiR[i] = biR[i] - alfa * mAtbiP[i];
-            });
-        } else {
-            for(size_t i = 0; i < size; ++i) {
-                nR[i] = R[i] - alfa * mAP[i];
-                nbiR[i] = biR[i] - alfa * mAtbiP[i];
-            }
+// #pragma omp parallel for default(none) shared(size,R,nR,biR,nbiR,mAP,mAtbiP,alfa)
+        for(size_t i = 0; i < size; ++i) {
+            nR[i] = R[i] - alfa * mAP[i];
+            nbiR[i] = biR[i] - alfa * mAtbiP[i];
         }
 
         denominator = numerator;
         numerator = Mult<T>(nbiR, nR, size);
         T beta = numerator / denominator;
 
-        if constexpr (MP) {
-            SmartMPCycle(0, size, [&](size_t i) {
-                nP[i] = nR[i] + beta * P[i];
-                nbiP[i] = nbiR[i] + beta * biP[i];
-            });
-        } else {
-            for(size_t i = 0; i < size; ++i) {
-                nP[i] = nR[i] + beta * P[i];
-                nbiP[i] = nbiR[i] + beta * biP[i];
-            }
+// #pragma omp parallel for default(none) shared(size,nR,nbiR,P,nP,biP,nbiP,beta)
+        for(size_t i = 0; i < size; ++i) {
+            nP[i] = nR[i] + beta * P[i];
+            nbiP[i] = nbiR[i] + beta * biP[i];
         }
 
         // accuracy control
-        T curAccuracy = Math::sqrt(Mult<T>(R, R, size) / norm);
-        if (curAccuracy < accuracy) {
+        T curAccuracy = std::sqrt(Mult<T>(R, R, size) / norm);
+        if (curAccuracy < eps) {
             solved = true;
             break;
         }
 
+// #pragma omp parallel for default(none) shared(size,x,alfa,P)
         for(size_t i = 0; i < size; ++i)
         {
             x[i] += alfa * P[i];
@@ -249,41 +193,8 @@ int SolveBCG(T** A, T* b, T* x, const size_t size, const size_t iterations,
     Destroy(nbiP);
     Destroy(mAtbiP);
     Destroy(mAP);
-    Destroy(At, size);
 
-    return (solved) ? static_cast<int>(iter) : -1;
-}
+    count = static_cast<int>(iter);
 
-// } // anonimous namespace
-
-#if defined(WIN32)
-#define EXPORT_API __declspec(dllexport)
-#define IMPORT_API __declspec(dllimport)
-#define CC __cdecl
-#else
-#define EXPORT_API __attribute__((visibility("default"), used))
-#define IMPORT_API
-#define CC
-#endif
-
-extern "C" {
-
-EXPORT_API int CC SolveBCGF32(float** A, float* b, float* x, const size_t size,
-                                 const size_t iterations, const float accuracy) {
-    return SolveBCG<float, false>(A, b, x, size, iterations, accuracy);
-}
-EXPORT_API int CC SolveBCGF64(double** A, double* b, double* x, const size_t size,
-                                 const size_t iterations, const double accuracy) {
-    return SolveBCG<double, false>(A, b, x, size, iterations, accuracy);
-}
-
-EXPORT_API int CC MP_SolveBCGF32(float** A, float* b, float* x, const size_t size,
-                                 const size_t iterations, const float accuracy) {
-    return SolveBCG<float, true>(A, b, x, size, iterations, accuracy);
-}
-EXPORT_API int CC MP_SolveBCGF64(double** A, double* b, double* x, const size_t size,
-                                 const size_t iterations, const double accuracy) {
-    return SolveBCG<double, true>(A, b, x, size, iterations, accuracy);
-}
-
+    return;
 }
